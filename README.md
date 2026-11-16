@@ -50,6 +50,12 @@ Everything is kept next to the exe in `bin\`:
 | `steamcmd\`          | SteamCMD, if installed through the app                |
 | `steam_build\`       | One folder per app: scripts, output, logs, cached art |
 
+## License
+
+This project is licensed under the MIT license. See [LICENSE](LICENSE).
+
+It uses [raylib](https://www.raylib.com), which ships with Odin under the zlib license. Fonts are loaded at runtime from your Windows install and are not included. SteamCMD is not bundled either: the app downloads it straight from Valve. This project is not affiliated with Valve or Steam.
+
 ---
 
 *The screenshots use made-up demo games and IDs.*
