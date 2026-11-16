@@ -1,0 +1,5 @@
+# Build output + everything the app installs/creates at runtime
+# (exe, steambuildgui.json config, steamcmd\, steam_build\)
+bin/
+*.res
+*.pdb
