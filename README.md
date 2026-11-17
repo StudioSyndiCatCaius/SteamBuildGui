@@ -12,7 +12,7 @@ A small, fast desktop app for uploading your game builds to Steam. It's a friend
 - **Branches and preview builds.** You can set a branch live after the upload, or do a dry run that builds the manifest without uploading anything.
 - **Build history.** Each app keeps its recent uploads with time, BuildID, branch, and result.
 - **SteamCMD installer.** If you don't have steamcmd yet, the app can download it with one click.
-- **Safe login.** Your password is passed only to steamcmd and is never written to the log. If you choose to remember it, it's encrypted with Windows DPAPI.
+- **Safe login.** Your password is passed only to steamcmd and is never written to the log. If you choose to remember it, it's encrypted with Windows DPAPI, or stored in the Keychain on macOS.
 
 ![Another app](screenshots/apps2.png)
 
@@ -20,7 +20,7 @@ A small, fast desktop app for uploading your game builds to Steam. It's a friend
 
 ## Requirements
 
-- Windows 10 or 11
+- Windows 10 or 11, or macOS 11+ (Apple Silicon or Intel)
 - The [Odin compiler](https://odin-lang.org/docs/install/) on your `PATH` (only needed to build the app)
 - A Steamworks account with permission to upload builds for your app
 
@@ -30,6 +30,14 @@ A small, fast desktop app for uploading your game builds to Steam. It's a friend
 build.bat          :: optimized build -> bin\SteamBuildGui.exe
 build.bat debug    :: debug build with a console window
 build.bat icon     :: regenerate SteamBuildGui.ico, then build
+```
+
+On macOS (double-click in Finder or run in Terminal):
+
+```sh
+./MacOs_InstallOdin.command   # one-time: Xcode CLT + Homebrew + Odin
+./MacOs_Build.command         # optimized build -> bin/SteamBuildGui.app
+./MacOs_Build.command debug   # debug binary -> bin/SteamBuildGui
 ```
 
 ## Quick start
@@ -42,19 +50,19 @@ build.bat icon     :: regenerate SteamBuildGui.ico, then build
 
 ## Where things are stored
 
-Everything is kept next to the exe in `bin\`:
+Everything is kept next to the exe in `bin\` (on macOS the `.app` uses `~/Library/Application Support/SteamBuildGui/` instead):
 
 | Path                 | What                                                  |
 |----------------------|-------------------------------------------------------|
 | `steambuildgui.json` | Your apps, depots, and settings                       |
-| `steamcmd\`          | SteamCMD, if installed through the app                |
+| `steamcmd\`          | SteamCMD (`steamcmd.sh` on macOS), if installed through the app |
 | `steam_build\`       | One folder per app: scripts, output, logs, cached art |
 
 ## License
 
 This project is licensed under the MIT license. See [LICENSE](LICENSE).
 
-It uses [raylib](https://www.raylib.com), which ships with Odin under the zlib license. Fonts are loaded at runtime from your Windows install and are not included. SteamCMD is not bundled either: the app downloads it straight from Valve. This project is not affiliated with Valve or Steam.
+It uses [raylib](https://www.raylib.com), which ships with Odin under the zlib license. Fonts are loaded at runtime from your Windows or macOS install and are not included. SteamCMD is not bundled either: the app downloads it straight from Valve. This project is not affiliated with Valve or Steam.
 
 ---
 

@@ -2,8 +2,53 @@
 package SteamBuildPusher
 
 import "core:fmt"
+import os "core:os"
 import "core:strings"
 import win "core:sys/windows"
+import rl "vendor:raylib"
+
+// ---------------------------------------------------------------------------
+// Platform constants
+// ---------------------------------------------------------------------------
+
+SEP :: "\\"
+OTHER_SEP :: "/"
+CURL :: "curl.exe"
+STEAMCMD_EXE :: "steamcmd.exe"
+STEAMCMD_HINT :: `C:\steamcmd\steamcmd.exe`
+MOD_KEY_NAME :: "Ctrl"
+
+FONTS_REGULAR := []cstring{"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"}
+FONTS_SEMIBOLD := []cstring{"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"}
+FONTS_MONO := []cstring{"C:/Windows/Fonts/CascadiaMono.ttf", "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/cour.ttf"}
+
+mod_key_down :: proc() -> bool {
+	return rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+}
+
+// Config, steamcmd\ and steam_build\ live next to the exe.
+app_data_dir :: proc() -> string {
+	dir, err := os.get_executable_directory(context.allocator)
+	return dir if err == nil else "."
+}
+
+steamcmd_candidates :: proc() -> []string {
+	@(static) paths := [?]string{`C:\steamcmd\steamcmd.exe`, `C:\SteamCMD\steamcmd.exe`, `C:\Program Files\steamcmd\steamcmd.exe`}
+	return paths[:]
+}
+
+// Uses curl.exe + tar.exe that ship with Windows 10/11.
+steamcmd_install_steps :: proc(dir: string) -> (steps: []Job_Step, exe: string) {
+	zip := fmt.tprintf(`%s\steamcmd.zip`, dir)
+	exe = fmt.tprintf(`%s\steamcmd.exe`, dir)
+	steps = make([]Job_Step, 4, context.temp_allocator)
+	steps[0] = {cmd = {"curl.exe", "-f", "-L", "-sS", "--max-time", "120", "-o", zip, "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"}, workdir = dir, check_exit = true, note = "Downloading steamcmd.zip from Valve…"}
+	steps[1] = {cmd = {"tar.exe", "-xf", zip, "-C", dir}, workdir = dir, check_exit = true, note = "Extracting…"}
+	steps[2] = {cmd = {"cmd.exe", "/c", "del", "/q", zip}, workdir = dir}
+	// First run downloads the rest of steamcmd; it often exits with code 7 after updating, which is fine.
+	steps[3] = {cmd = {exe, "+quit"}, workdir = dir, note = "First run: steamcmd updates itself (this can take a minute)…"}
+	return
+}
 
 // ---------------------------------------------------------------------------
 // File / folder pickers (modern IFileOpenDialog)

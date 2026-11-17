@@ -20,9 +20,14 @@ vdf_escape :: proc(s: string) -> string {
 	return out
 }
 
-win_path :: proc(p: string) -> string {
-	out, _ := strings.replace_all(strings.trim_space(p), "/", "\\", context.temp_allocator)
-	return strings.trim_right(out, "\\")
+// Joins path parts with the native separator (temp allocated).
+path_join :: proc(parts: ..string) -> string {
+	return strings.join(parts, SEP, context.temp_allocator)
+}
+
+native_path :: proc(p: string) -> string {
+	out, _ := strings.replace_all(strings.trim_space(p), OTHER_SEP, SEP, context.temp_allocator)
+	return strings.trim_right(out, SEP) if len(out) > 1 else out
 }
 
 // ---------------------------------------------------------------------------
@@ -50,14 +55,14 @@ sanitize_folder_name :: proc(name: string) -> string {
 
 // "" when the app has no App ID yet (and no custom folder).
 app_dir :: proc(s: ^Settings, a: ^App) -> string {
-	if strings.trim_space(a.folder) != "" do return win_path(a.folder)
+	if strings.trim_space(a.folder) != "" do return native_path(a.folder)
 	id := strings.trim_space(a.app_id)
 	if !is_numeric(id) do return ""
-	return fmt.tprintf("%s\\%s", win_path(s.work_dir), id)
+	return path_join(native_path(s.work_dir), id)
 }
-builds_dir :: proc(s: ^Settings, a: ^App) -> string {return fmt.tprintf("%s\\builds", app_dir(s, a))}
-scripts_dir :: proc(s: ^Settings, a: ^App) -> string {return fmt.tprintf("%s\\scripts", app_dir(s, a))}
-output_dir :: proc(s: ^Settings, a: ^App) -> string {return fmt.tprintf("%s\\output", app_dir(s, a))}
+builds_dir :: proc(s: ^Settings, a: ^App) -> string {return path_join(app_dir(s, a), "builds")}
+scripts_dir :: proc(s: ^Settings, a: ^App) -> string {return path_join(app_dir(s, a), "scripts")}
+output_dir :: proc(s: ^Settings, a: ^App) -> string {return path_join(app_dir(s, a), "output")}
 
 // Name of the depot's folder inside builds\ (its label, or its ID if unlabeled).
 depot_folder_name :: proc(d: ^Depot) -> string {
@@ -68,11 +73,11 @@ depot_folder_name :: proc(d: ^Depot) -> string {
 
 // Where a depot's files come from: a custom path if set, otherwise builds\<label>.
 depot_content_dir :: proc(s: ^Settings, a: ^App, d: ^Depot) -> string {
-	if strings.trim_space(d.content_path) != "" do return win_path(d.content_path)
+	if strings.trim_space(d.content_path) != "" do return native_path(d.content_path)
 	if app_dir(s, a) == "" do return ""
 	name := depot_folder_name(d)
 	if name == "" do return ""
-	return fmt.tprintf("%s\\%s", builds_dir(s, a), name)
+	return path_join(builds_dir(s, a), name)
 }
 
 // Creates <app>\builds\<depot> for every depot. Returns false on failure.
@@ -88,10 +93,10 @@ ensure_app_dir :: proc(s: ^Settings, a: ^App) -> bool {
 }
 
 header_cache_file :: proc(s: ^Settings, app_id: string) -> string {
-	return fmt.tprintf("%s\\%s\\%s_header.jpg", win_path(s.work_dir), app_id, app_id)
+	return path_join(native_path(s.work_dir), app_id, fmt.tprintf("%s_header.jpg", app_id))
 }
 details_cache_file :: proc(s: ^Settings, app_id: string) -> string {
-	return fmt.tprintf("%s\\%s\\%s_details.json", win_path(s.work_dir), app_id, app_id)
+	return path_join(native_path(s.work_dir), app_id, fmt.tprintf("%s_details.json", app_id))
 }
 
 // --- Folder stats (cached; refreshed every few seconds) -----------------------
@@ -193,7 +198,7 @@ is_numeric :: proc(s: string) -> bool {
 
 // Returns a human readable problem, or "" if the app is ready to upload.
 validate_app :: proc(s: ^Settings, a: ^App) -> string {
-	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd.exe not found - install or locate it in Settings."
+	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd not found - install or locate it in Settings."
 	if strings.trim_space(s.username) == "" do return "Steam username is not set - see Settings."
 	if !is_numeric(strings.trim_space(a.app_id)) do return "App ID must be a number."
 	n := 0
@@ -229,18 +234,18 @@ write_build_scripts :: proc(s: ^Settings, a: ^App) -> (app_vdf: string, err_msg:
 	fmt.sbprintf(&sb, "\t\"Preview\" \"%d\"\n", 1 if a.preview else 0)
 	branch := strings.trim_space(a.branch)
 	if branch != "" do fmt.sbprintf(&sb, "\t\"SetLive\" \"%s\"\n", vdf_escape(branch))
-	fmt.sbprintf(&sb, "\t\"BuildOutput\" \"%s\\\"\n", odir)
+	fmt.sbprintf(&sb, "\t\"BuildOutput\" \"%s%s\"\n", odir, SEP)
 	strings.write_string(&sb, "\t\"Depots\"\n\t{\n")
 
 	for &d in a.depots {
 		if !d.enabled do continue
 		depot_id := strings.trim_space(d.id)
-		depot_vdf := fmt.tprintf("%s\\depot_build_%s.vdf", sdir, depot_id)
+		depot_vdf := path_join(sdir, fmt.tprintf("depot_build_%s.vdf", depot_id))
 
 		db := strings.builder_make(context.temp_allocator)
 		strings.write_string(&db, "\"DepotBuildConfig\"\n{\n")
 		fmt.sbprintf(&db, "\t\"DepotID\" \"%s\"\n", depot_id)
-		fmt.sbprintf(&db, "\t\"ContentRoot\" \"%s\\\"\n", depot_content_dir(s, a, &d))
+		fmt.sbprintf(&db, "\t\"ContentRoot\" \"%s%s\"\n", depot_content_dir(s, a, &d), SEP)
 		strings.write_string(&db, "\t\"FileMapping\"\n\t{\n")
 		strings.write_string(&db, "\t\t\"LocalPath\" \"*\"\n\t\t\"DepotPath\" \".\"\n\t\t\"recursive\" \"1\"\n\t}\n")
 		for ex in strings.split(d.exclusions, ";", context.temp_allocator) {
@@ -255,7 +260,7 @@ write_build_scripts :: proc(s: ^Settings, a: ^App) -> (app_vdf: string, err_msg:
 	}
 	strings.write_string(&sb, "\t}\n}\n")
 
-	app_vdf = fmt.tprintf("%s\\app_build_%s.vdf", sdir, app_id)
+	app_vdf = path_join(sdir, fmt.tprintf("app_build_%s.vdf", app_id))
 	if os.write_entire_file(app_vdf, strings.to_string(sb)) != nil {
 		return "", fmt.tprintf("Could not write %s", app_vdf)
 	}
@@ -548,22 +553,12 @@ runner_start_steps :: proc(kind: Job_Kind, title: string, steps: []Job_Step, res
 	return true
 }
 
-STEAMCMD_ZIP_URL :: "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
-
-// Downloads steamcmd.zip, extracts it into `install_dir` and runs it once so it
-// self-updates. Uses curl.exe + tar.exe that ship with Windows 10/11.
+// Downloads SteamCMD from Valve, extracts it into `install_dir` and runs it once so it
+// self-updates. The per-OS download/extract steps live in platform_*.odin.
 start_install_steamcmd :: proc(install_dir: string) -> string {
-	dir := win_path(install_dir)
+	dir := native_path(install_dir)
 	if os.make_directory_all(dir) != nil && !os.is_dir(dir) do return fmt.tprintf("Could not create %s", dir)
-	zip := fmt.tprintf("%s\\steamcmd.zip", dir)
-	exe := fmt.tprintf("%s\\steamcmd.exe", dir)
-	steps := []Job_Step {
-		{cmd = {"curl.exe", "-f", "-L", "-sS", "--max-time", "120", "-o", zip, STEAMCMD_ZIP_URL}, workdir = dir, check_exit = true, note = "Downloading steamcmd.zip from Valve…"},
-		{cmd = {"tar.exe", "-xf", zip, "-C", dir}, workdir = dir, check_exit = true, note = "Extracting…"},
-		{cmd = {"cmd.exe", "/c", "del", "/q", zip}, workdir = dir},
-		// First run downloads the rest of steamcmd; it often exits with code 7 after updating, which is fine.
-		{cmd = {exe, "+quit"}, workdir = dir, note = "First run: steamcmd updates itself (this can take a minute)…"},
-	}
+	steps, exe := steamcmd_install_steps(dir)
 	if !runner_start_steps(.Install_SteamCMD, "Installing SteamCMD", steps, {path = strings.clone(exe)}) {
 		return "Another job is already running."
 	}
@@ -603,7 +598,7 @@ start_upload :: proc(s: ^Settings, a: ^App, creds: Credentials) -> string {
 	vdf, err := write_build_scripts(s, a)
 	if err != "" do return err
 
-	steamcmd := win_path(s.steamcmd_path)
+	steamcmd := native_path(s.steamcmd_path)
 	cmd, shown := login_command(steamcmd, creds, "+run_app_build", vdf, "+quit")
 	title := fmt.tprintf("%s %s (%s)", "Preview build" if a.preview else "Uploading", a.name, strings.trim_space(a.app_id))
 	res := Job_Result {
@@ -617,9 +612,9 @@ start_upload :: proc(s: ^Settings, a: ^App, creds: Credentials) -> string {
 }
 
 start_login_check :: proc(s: ^Settings, creds: Credentials) -> string {
-	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd.exe not found."
+	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd not found."
 	if strings.trim_space(s.username) == "" do return "Set your Steam username first."
-	steamcmd := win_path(s.steamcmd_path)
+	steamcmd := native_path(s.steamcmd_path)
 	cmd, shown := login_command(steamcmd, creds, "+quit")
 	title := "Logging in to Steam" if creds.password != "" else "Checking cached Steam login"
 	if !runner_start_steps(.Login_Check, title, {{cmd = cmd, workdir = os.dir(steamcmd), log_cmd = shown}}, {}) do return "Another job is already running."
@@ -629,9 +624,9 @@ start_login_check :: proc(s: ^Settings, creds: Credentials) -> string {
 // Opens a real console so the user can type password + Steam Guard code once;
 // steamcmd then caches the credentials for future non-interactive builds.
 open_login_console :: proc(s: ^Settings) -> string {
-	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd.exe not found."
+	if s.steamcmd_path == "" || !os.exists(s.steamcmd_path) do return "steamcmd not found."
 	if strings.trim_space(s.username) == "" do return "Set your Steam username first."
-	steamcmd := win_path(s.steamcmd_path)
+	steamcmd := native_path(s.steamcmd_path)
 	if !launch_console(steamcmd, fmt.tprintf("+login %s", strings.trim_space(s.username)), os.dir(steamcmd)) {
 		return "Could not launch steamcmd."
 	}
@@ -650,7 +645,7 @@ runner_poll :: proc() -> (res: Job_Result, ok: bool) {
 }
 
 // ---------------------------------------------------------------------------
-// Steam store art + name fetching (background, via Windows' bundled curl.exe)
+// Steam store art + name fetching (background, via the OS-bundled curl)
 // ---------------------------------------------------------------------------
 
 Art_State :: enum {
@@ -686,11 +681,11 @@ fetch_thread :: proc(f: ^Fetch_Args) {
 		free(f)
 	}
 	header_url := fmt.tprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg", f.app_id)
-	code, ok := run_quiet({"curl.exe", "-f", "-s", "-L", "--max-time", "20", "-o", f.header_path, header_url})
+	code, ok := run_quiet({CURL, "-f", "-s", "-L", "--max-time", "20", "-o", f.header_path, header_url})
 	got_header := ok && code == 0 && os.exists(f.header_path)
 
 	details_url := fmt.tprintf("https://store.steampowered.com/api/appdetails?appids=%s&filters=basic", f.app_id)
-	run_quiet({"curl.exe", "-f", "-s", "-L", "--max-time", "20", "-o", f.details_path, details_url})
+	run_quiet({CURL, "-f", "-s", "-L", "--max-time", "20", "-o", f.details_path, details_url})
 
 	sync.mutex_lock(&store_fetch.mutex)
 	store_fetch.pending[f.app_id] = .Downloaded if got_header else .Missing_Fresh
@@ -708,7 +703,7 @@ start_store_fetch :: proc(s: ^Settings, app_id: string) {
 	} else {
 		store_fetch.pending[app_id] = .Fetching
 	}
-	os.make_directory_all(fmt.tprintf("%s\\%s", win_path(s.work_dir), app_id))
+	os.make_directory_all(path_join(native_path(s.work_dir), app_id))
 
 	f := new(Fetch_Args)
 	f.app_id = strings.clone(app_id)

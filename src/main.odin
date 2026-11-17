@@ -75,8 +75,8 @@ main :: proc() {
 	if len(os.args) >= 3 && os.args[1] == "--write-icon" {
 		ok: bool
 		if strings.has_suffix(os.args[2], ".png") { // preview
-			px := icon_pixels(256)
-			ok = rl.ExportImage(rl.Image{data = raw_data(px), width = 256, height = 256, mipmaps = 1, format = .UNCOMPRESSED_R8G8B8A8}, cstr(os.args[2]))
+			px := icon_pixels(512)
+			ok = rl.ExportImage(rl.Image{data = raw_data(px), width = 512, height = 512, mipmaps = 1, format = .UNCOMPRESSED_R8G8B8A8}, cstr(os.args[2]))
 		} else {
 			ok = write_ico(os.args[2], {16, 20, 24, 32, 40, 48, 64, 128, 256})
 		}
@@ -84,8 +84,9 @@ main :: proc() {
 		return
 	}
 
-	exe_dir, err := os.get_executable_directory(context.allocator)
-	if err != nil do exe_dir = "."
+	// Windows: next to the exe. macOS: ~/Library/Application Support/SteamBuildGui
+	// (an .app bundle must not be written into).
+	exe_dir := app_data_dir()
 	st.exe_dir = exe_dir
 	st.cfg = config_load(exe_dir)
 	if st.cfg.settings.remember_password {
@@ -158,7 +159,7 @@ frame :: proc() {
 	ui_begin_frame()
 	ui.blocked = st.confirm != .None
 
-	ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+	ctrl := mod_key_down()
 	if ctrl && rl.IsKeyPressed(.S) {
 		save_now()
 		show_toast("Saved", .Success)
@@ -715,7 +716,7 @@ draw_log :: proc(r: Rect, status_y: f32) {
 	}
 	cut_right(&hb, 4)
 	if button(inset(cut_right(&hb, 148), 0, 5), "Apps folder", .Ghost, .Folder) {
-		d := win_path(st.cfg.settings.work_dir)
+		d := native_path(st.cfg.settings.work_dir)
 		os.make_directory_all(d)
 		shell_open(d)
 	}
@@ -952,8 +953,8 @@ draw_details_card :: proc(x, y, w: f32, a: ^App) -> f32 {
 
 	ry += FIELD_ROW
 	s := &st.cfg.settings
-	default_dir := fmt.tprintf("%s\\%s", win_path(s.work_dir), strings.trim_space(a.app_id)) if is_numeric(strings.trim_space(a.app_id)) else "set the App ID first"
-	fr := form_field(in_r.x, ry, in_r.width, "App folder", "holds builds\\, scripts\\, output\\ and store art - leave empty for the default")
+	default_dir := path_join(native_path(s.work_dir), strings.trim_space(a.app_id)) if is_numeric(strings.trim_space(a.app_id)) else "set the App ID first"
+	fr := form_field(in_r.x, ry, in_r.width, "App folder", "holds builds, scripts, output and store art - leave empty for the default")
 	open_r := cut_right(&fr, 96)
 	fr.width -= 8
 	if path_field(fr, &a.folder, default_dir, true, "Choose app folder") do dir_stats_invalidate()
@@ -1014,7 +1015,7 @@ draw_depots_card :: proc(x, y, w: f32, a: ^App) -> f32 {
 	unused := unused_build_folders(s, a)
 	has_app_dir := app_dir(s, a) != ""
 	h: f32 = 56 + 24 + n * row_h + 6 + (34 if len(unused) > 0 else 0) + 34 + 22
-	subtitle := "put each depot's files in builds\\<label> inside the app folder"
+	subtitle := fmt.tprintf("put each depot's files in builds%s<label> inside the app folder", SEP)
 	in_r := card(x, y, w, h, "Depots", subtitle)
 
 	gap: f32 = 8
@@ -1063,7 +1064,7 @@ draw_depots_card :: proc(x, y, w: f32, a: ^App) -> f32 {
 	// Folders that exist in builds\ but have no depot yet
 	if len(unused) > 0 {
 		cx := in_r.x
-		lbl := "Found in builds\\:"
+		lbl := "Found in builds:"
 		draw_text(lbl, cx, ry + 4, .Small, C_TEXT_DIM)
 		cx += measure(lbl, .Small) + 10
 		for name in unused {
@@ -1096,7 +1097,7 @@ draw_depots_card :: proc(x, y, w: f32, a: ^App) -> f32 {
 		shell_open(builds_dir(s, a))
 	}
 	tip_x := in_r.x + 330
-	tip := "Tip: create a folder in builds\\ and it shows up here as a new depot." if has_app_dir else "Set the App ID to create the app's builds folder."
+	tip := "Tip: create a folder in builds and it shows up here as a new depot." if has_app_dir else "Set the App ID to create the app's builds folder."
 	draw_text(fit_text(tip, .Small, in_r.x + iw - tip_x), tip_x, ry + 9, .Small, C_TEXT_FAINT)
 	return y + h
 }
@@ -1126,7 +1127,7 @@ draw_build_folder_cell :: proc(r: Rect, s: ^Settings, a: ^App, d: ^Depot) {
 	case custom:
 		shown = dir
 	case:
-		shown = fmt.tprintf("builds\\%s", depot_folder_name(d))
+		shown = path_join("builds", depot_folder_name(d))
 	}
 	label(inner, shown, .Body, col)
 
@@ -1304,8 +1305,8 @@ draw_settings_tab :: proc(r: Rect) {
 	{
 		h: f32 = 56 + FIELD_ROW + 28 + 40 + 4
 		in_r := card(x, y, cw, h, "SteamCMD", "Valve's command line tool that performs the upload")
-		path_field(form_field(in_r.x, in_r.y, in_r.width, "steamcmd.exe location"), &s.steamcmd_path,
-			"C:\\steamcmd\\steamcmd.exe", false, "Locate steamcmd.exe", "steamcmd", "steamcmd.exe")
+		path_field(form_field(in_r.x, in_r.y, in_r.width, "steamcmd location"), &s.steamcmd_path,
+			STEAMCMD_HINT, false, "Locate " + STEAMCMD_EXE, "steamcmd", STEAMCMD_EXE)
 		ry := in_r.y + FIELD_ROW
 		found := s.steamcmd_path != "" && os.is_file(s.steamcmd_path)
 		if found {
@@ -1313,7 +1314,7 @@ draw_settings_tab :: proc(r: Rect) {
 			draw_text("steamcmd found", in_r.x + 20, ry + 1, .Small, C_SUCCESS)
 		} else {
 			draw_icon(.Close, {in_r.x + 7, ry + 9}, 12, C_WARN)
-			draw_text("Not found - click Install for a one-click download from Valve, or browse to an existing steamcmd.exe.", in_r.x + 20, ry + 1, .Small, C_WARN)
+			draw_text("Not found - click Install for a one-click download from Valve, or browse to an existing steamcmd.", in_r.x + 20, ry + 1, .Small, C_WARN)
 		}
 		ry += 28
 		rv := runner_view()
@@ -1324,7 +1325,7 @@ draw_settings_tab :: proc(r: Rect) {
 			draw_text(fmt.tprintf("Installing SteamCMD…  %s", fmt_elapsed(rv.elapsed)), bx + 32, ry + 8, .Bold, C_ACCENT)
 			bx += 260
 		} else {
-			install_dir := fmt.tprintf("%s\\steamcmd", st.exe_dir)
+			install_dir := path_join(st.exe_dir, "steamcmd")
 			label_txt := "Reinstall SteamCMD" if found else "Install SteamCMD"
 			if button(Rect{bx, ry, 200, 34}, label_txt, .Default if found else .Primary, .Upload, rv.state != .Running) {
 				if msg := start_install_steamcmd(install_dir); msg != "" do show_toast(msg, .Error)
@@ -1333,14 +1334,14 @@ draw_settings_tab :: proc(r: Rect) {
 			bx += 208
 		}
 		if button(Rect{bx, ry, 150, 34}, "Open folder", .Ghost, .Folder, found) {
-			shell_open(os.dir(win_path(s.steamcmd_path)))
+			shell_open(os.dir(native_path(s.steamcmd_path)))
 		}
 		bx += 158
 		if button(Rect{bx, ry, 120, 34}, "Docs", .Ghost, .External) {
-			shell_open("https://developer.valvesoftware.com/wiki/SteamCMD#Windows")
+			shell_open("https://developer.valvesoftware.com/wiki/SteamCMD#" + ODIN_OS_STRING)
 		}
 		if !installing && !found {
-			draw_text(fit_text(fmt.tprintf("installs to %s\\steamcmd", st.exe_dir), .Small, in_r.x + in_r.width - bx - 130), bx + 130, ry + 9, .Small, C_TEXT_FAINT)
+			draw_text(fit_text(fmt.tprintf("installs to %s", path_join(st.exe_dir, "steamcmd")), .Small, in_r.x + in_r.width - bx - 130), bx + 130, ry + 9, .Small, C_TEXT_FAINT)
 		}
 		y += h + 18
 	}
@@ -1376,7 +1377,10 @@ draw_settings_tab :: proc(r: Rect) {
 		if st.guard_needed && st.guard_code == "" do outline(gr, 6, 1.5, C_WARN)
 		if checkbox(Rect{in_r.x + col + gap, ry + 22, col, 36}, &s.remember_password, "Remember password on this PC (encrypted)") {
 			if s.remember_password do save_password()
-			else do free_str(&s.password_enc)
+			else {
+				secret_encrypt("") // macOS: removes the Keychain item
+				free_str(&s.password_enc)
+			}
 		}
 
 		// Status
@@ -1421,10 +1425,10 @@ draw_settings_tab :: proc(r: Rect) {
 		wf := form_field(in_r.x, in_r.y, in_r.width, "Working folder", "contains one folder per app")
 		if path_field(wf, &s.work_dir, "folder for your apps", true, "Choose working folder") do dir_stats_invalidate()
 		ry := in_r.y + FIELD_ROW
-		draw_text(fit_text(fmt.tprintf("Layout: %s\\<AppID>\\builds\\<Depot>\\  (+ scripts\\, output\\, store art)", win_path(s.work_dir)), .Small, in_r.width), in_r.x, ry, .Small, C_TEXT_FAINT)
+		draw_text(fit_text(fmt.tprintf("Layout: %s  (+ scripts, output, store art)", path_join(native_path(s.work_dir), "<AppID>", "builds", "<Depot>")), .Small, in_r.width), in_r.x, ry, .Small, C_TEXT_FAINT)
 		ry += 26
 		if button(Rect{in_r.x, ry, 150, 34}, "Open folder", .Default, .Folder) {
-			d := win_path(s.work_dir)
+			d := native_path(s.work_dir)
 			os.make_directory_all(d)
 			shell_open(d)
 		}
@@ -1444,7 +1448,7 @@ draw_settings_tab :: proc(r: Rect) {
 		y += h + 18
 	}
 
-	draw_text(fit_text(fmt.tprintf("Config file: %s   ·   Ctrl+S to save (autosaves anyway)", config_path(st.exe_dir)), .Small, cw), x, y, .Small, C_TEXT_FAINT)
+	draw_text(fit_text(fmt.tprintf("Config file: %s   ·   %s+S to save (autosaves anyway)", config_path(st.exe_dir), MOD_KEY_NAME), .Small, cw), x, y, .Small, C_TEXT_FAINT)
 	y += 50
 	scroll_end(&st.settings_scroll, r, y)
 }

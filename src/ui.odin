@@ -68,9 +68,7 @@ load_fonts :: proc() {
 		}
 		return rl.GetFontDefault()
 	}
-	ui_regular := []cstring{"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"}
-	ui_semibold := []cstring{"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"}
-	mono := []cstring{"C:/Windows/Fonts/CascadiaMono.ttf", "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/cour.ttf"}
+	ui_regular, ui_semibold, mono := FONTS_REGULAR, FONTS_SEMIBOLD, FONTS_MONO
 
 	fonts[.Small] = load(ui_regular, font_size[.Small], cps[:])
 	fonts[.Body] = load(ui_regular, font_size[.Body], cps[:])
@@ -648,7 +646,7 @@ text_field :: proc(r: Rect, s: ^string, placeholder := "", kind := Font_Kind.Bod
 			ui.caret = index_at_x(mask_bytes(ui.buf[:], mask), ui.mouse.x - inner.x + ui.edit_scroll, kind) / (3 if mask else 1)
 		}
 
-		ctrl := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+		ctrl := mod_key_down()
 		shift := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
 		edited := false
 		moved := false

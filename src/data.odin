@@ -113,14 +113,9 @@ default_settings :: proc(exe_dir: string) -> Settings {
 		confirm_upload  = true,
 		show_log_on_run = true,
 	}
-	s.work_dir = strings.concatenate({exe_dir, "\\steam_build"})
+	s.work_dir = strings.concatenate({exe_dir, SEP + "steam_build"})
 	// Common steamcmd locations
-	candidates := []string{
-		"C:\\steamcmd\\steamcmd.exe",
-		"C:\\SteamCMD\\steamcmd.exe",
-		"C:\\Program Files\\steamcmd\\steamcmd.exe",
-	}
-	for c in candidates {
+	for c in steamcmd_candidates() {
 		if os.exists(c) {
 			s.steamcmd_path = strings.clone(c)
 			break
@@ -130,7 +125,7 @@ default_settings :: proc(exe_dir: string) -> Settings {
 }
 
 config_path :: proc(exe_dir: string) -> string {
-	return fmt.tprintf("%s\\%s", exe_dir, CONFIG_FILE)
+	return path_join(exe_dir, CONFIG_FILE)
 }
 
 config_load :: proc(exe_dir: string) -> Config {
@@ -140,7 +135,7 @@ config_load :: proc(exe_dir: string) -> Config {
 		defer delete(data)
 		if json.unmarshal(data, &cfg) == nil {
 			if cfg.settings.work_dir == "" {
-				cfg.settings.work_dir = strings.concatenate({exe_dir, "\\steam_build"})
+				cfg.settings.work_dir = strings.concatenate({exe_dir, SEP + "steam_build"})
 			}
 			cfg.selected = clamp(cfg.selected, 0, max(len(cfg.apps) - 1, 0))
 			return cfg
